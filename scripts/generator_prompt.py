@@ -1,5 +1,6 @@
 import argparse
 import base64
+from mimetypes import guess_type
 
 
 class Prompt:
@@ -14,12 +15,17 @@ class Prompt:
             examples += f"Passage{index+1}: {hit['content']}\n"
 
         prompt = self.prompt_template.format(examples=examples,
-                                             num=len(retrieval_results.hits))
+                                             num=len(
+                                                 retrieval_results["hits"]))
         return prompt
 
-    def encode_image(self, image_path):
+    def encode_image_as_url(self, image_path):
+        mime_type, _ = guess_type(image_path)
+        if mime_type is None:
+            mime_type = 'application/octet-stream'
         with open(image_path, "rb") as image_file:
-            return base64.b64encode(image_file.read()).decode('utf-8')
+            encoded = base64.b64encode(image_file.read()).decode('utf-8')
+        return f"data:{mime_type};base64,{encoded}"
 
 
 def main():

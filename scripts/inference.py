@@ -1,50 +1,81 @@
 import argparse
-import requests
 import os
+import pathlib
+from typing import List
 
-from . import generator_prompt
+from dotenv import load_dotenv
+import google.generativeai as genai
+import openai
+from openai import AzureOpenAI
+
+from scripts import generator_prompt
+
+load_dotenv()
 
 
-def infer_gpt(images, p_class):
-    api_key = os.environ["OPEN_API_KEY"]
+def infer_gemini(images: List[str], p_class: generator_prompt.Prompt):
+    genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+
+    for image in images:
+        model = genai.GenerativeModel('gemini-pro-vision')
+
+        cookie_picture = [{
+            'mime_type': 'image/png',
+            'data': pathlib.Path(image).read_bytes()
+        }]
+        retrieval_results = {"hits": []}
+
+        message = p_class.prepare_message(retrieval_results)
+
+        response = model.generate_content(model="gemini-pro-vision",
+                                          content=[message, cookie_picture])
+        print(f"Processed image: {image}")
+        print(response.text)
+        print("-" * 79)
+
+
+def infer_gpt(images: List[str], p_class: generator_prompt.Prompt):
+    azure_openai_api_version = os.environ["AZURE_OPENAI_API_VERSION"]
+    azure_openai_api_base = f"{os.environ['AZURE_OPENAI_API_BASE']}"
+    open_ai_api_key = os.environ["OPEN_AI_API_KEY"]
+    deployment_name = os.environ["DEPLOYMENT_NAME"]
+
+    client = AzureOpenAI(api_key=open_ai_api_key,
+                         api_version=azure_openai_api_version,
+                         azure_endpoint=azure_openai_api_base)
 
     for image in images:
         retrieval_results = {"hits": []}
 
         message = p_class.prepare_message(retrieval_results)
-        encoded_image = p_class.encode_image(image)
+        encoded_image_url = p_class.encode_image_as_url(image)
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
+        messages = [{
+            "role":
+            "user",
+            "content": [{
+                "type": "text",
+                "text": message,
+            }, {
+                "type": "image_url",
+                "image_url": {
+                    "url": encoded_image_url
+                }
+            }]
+        }]
 
-        payload = {
-            "model":
-            "gpt-4-vision-preview",
-            "messages": [{
-                "role":
-                "user",
-                "content": [{
-                    "type": "text",
-                    "text": f"{message}"
-                }, {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/jpeg;base64,{encoded_image}"
-                    }
-                }]
-            }],
-            "max_tokens":
-            300
-        }
-
-        response = requests.post("https://api.openai.com/v1/chat/completions",
-                                 headers=headers,
-                                 json=payload)
+        try:
+            response = client.chat.completions.create(model=deployment_name,
+                                                      messages=messages,
+                                                      max_tokens=300)
+            output = response.choices[0].message.content.lower(
+            ) if response.choices[0].message.content else ""
+        except openai.BadRequestError as e:
+            print(f"Encountered {e}")
+            output = ""
 
         print(f"Processed image: {image}")
-        print(response.json())
+        print(output)
         print("-" * 79)
 
 
@@ -57,6 +88,7 @@ def main():
 
     infer_mapping = {
         "gpt": infer_gpt,
+        "gemini": infer_gemini,
     }
 
     image_path = args.image_path
