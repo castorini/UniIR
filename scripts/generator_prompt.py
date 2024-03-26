@@ -4,6 +4,7 @@ from mimetypes import guess_type
 
 
 class Prompt:
+
     def __init__(self, prompt_file) -> None:
         with open(prompt_file) as p:
             self.prompt_template = "".join(p.readlines()).strip()

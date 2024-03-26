@@ -13,6 +13,8 @@ from transformers import pipeline
 
 from scripts import generator_prompt
 
+MAX_TOKENS = 200
+
 load_dotenv()
 
 
@@ -39,7 +41,7 @@ def infer_gemini(images: List[str], p_class: generator_prompt.Prompt):
 
 def infer_gpt(images: List[str], p_class: generator_prompt.Prompt):
     azure_openai_api_version = os.environ["AZURE_OPENAI_API_VERSION"]
-    azure_openai_api_base = f"{os.environ['AZURE_OPENAI_API_BASE']}"
+    azure_openai_api_base = os.environ["AZURE_OPENAI_API_BASE"]
     open_ai_api_key = os.environ["OPEN_AI_API_KEY"]
     deployment_name = os.environ["DEPLOYMENT_NAME"]
 
@@ -70,7 +72,7 @@ def infer_gpt(images: List[str], p_class: generator_prompt.Prompt):
         try:
             response = client.chat.completions.create(model=deployment_name,
                                                       messages=messages,
-                                                      max_tokens=300)
+                                                      max_tokens=MAX_TOKENS)
             output = response.choices[0].message.content.lower(
             ) if response.choices[0].message.content else ""
         except openai.BadRequestError as e:
@@ -95,7 +97,7 @@ def infer_llava(images: List[str],
         prompt = f"USER: <image>\n{message}\nASSISTANT:"
         outputs = pipe(image,
                        prompt=prompt,
-                       generate_kwargs={"max_new_tokens": 200})
+                       generate_kwargs={"max_new_tokens": MAX_TOKENS})
 
         print(f"Processed image: {image}")
         print(outputs[0]["generated_text"])
