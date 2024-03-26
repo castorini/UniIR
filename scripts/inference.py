@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 import openai
 from openai import AzureOpenAI
+from PIL import Image
+import torch
+from transformers import pipeline
 
 from scripts import generator_prompt
 
@@ -79,6 +82,26 @@ def infer_gpt(images: List[str], p_class: generator_prompt.Prompt):
         print("-" * 79)
 
 
+def infer_llava(images: List[str],
+                p_class: generator_prompt.Prompt,
+                model_id: str = "llava-hf/llava-1.5-7b-hf"):
+    pipe = pipeline("image-to-text", model=model_id)
+
+    for image_path in images:
+        image = Image.open(image_path)
+        retrieval_results = {"hits": []}
+
+        message = p_class.prepare_message(retrieval_results)
+        prompt = f"USER: <image>\n{message}\nASSISTANT:"
+        outputs = pipe(image,
+                       prompt=prompt,
+                       generate_kwargs={"max_new_tokens": 200})
+
+        print(f"Processed image: {image}")
+        print(outputs[0]["generated_text"])
+        print("-" * 79)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--image_path', default=False, help="Image path")
@@ -89,6 +112,7 @@ def main():
     infer_mapping = {
         "gpt": infer_gpt,
         "gemini": infer_gemini,
+        "llava": infer_llava
     }
 
     image_path = args.image_path
