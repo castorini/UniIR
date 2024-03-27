@@ -8,8 +8,7 @@ import google.generativeai as genai
 import openai
 from openai import AzureOpenAI
 from PIL import Image
-import torch
-from transformers import pipeline
+from transformers import AutoProcessor, LlavaForConditionalGeneration
 
 from scripts import generator_prompt
 
@@ -84,23 +83,36 @@ def infer_gpt(images: List[str], p_class: generator_prompt.Prompt):
         print("-" * 79)
 
 
-def infer_llava(images: List[str],
-                p_class: generator_prompt.Prompt,
-                model_id: str = "llava-hf/llava-1.5-7b-hf"):
-    pipe = pipeline("image-to-text", model=model_id)
+def infer_llava(
+    images: List[str],
+    p_class: generator_prompt.Prompt,
+    model_name: str = "llava-hf/llava-1.5-7b-hf",
+):
+    model = LlavaForConditionalGeneration.from_pretrained(model_name,
+                                                 device_map="auto",
+                                                 low_cpu_mem_usage=True)
+    processor = AutoProcessor.from_pretrained(model_name, use_fast=True)
+
+    prompts = []
+    input_images = []
 
     for image_path in images:
         image = Image.open(image_path)
+        input_images.append(image)
+
         retrieval_results = {"hits": []}
-
         message = p_class.prepare_message(retrieval_results)
-        prompt = f"USER: <image>\n{message}\nASSISTANT:"
-        outputs = pipe(image,
-                       prompt=prompt,
-                       generate_kwargs={"max_new_tokens": MAX_TOKENS})
+        prompts.append(f"USER: <image>\n{message}\nASSISTANT:")
 
+    inputs = processor(prompts,
+                       images=input_images,
+                       padding=True,
+                       return_tensors="pt").to("cuda")
+    output = model.generate(**inputs, max_new_tokens=20)
+    generated_text = processor.batch_decode(output, skip_special_tokens=True)
+    for text in generated_text:
         print(f"Processed image: {image}")
-        print(outputs[0]["generated_text"])
+        print(text.split("ASSISTANT:")[-1])
         print("-" * 79)
 
 
@@ -114,7 +126,7 @@ def main():
     infer_mapping = {
         "gpt": infer_gpt,
         "gemini": infer_gemini,
-        "llava": infer_llava
+        "llava": infer_llava,
     }
 
     image_path = args.image_path
