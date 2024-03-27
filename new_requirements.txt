@@ -28,10 +28,15 @@ frozenlist==1.4.1
 fsspec==2023.10.0
 future @ file:///System/Volumes/Data/SWE/Apps/DT/BuildRoots/BuildRoot11/ActiveBuildRoot/Library/Caches/com.apple.xbs/Sources/python3/python3-141/future-0.18.2-py3-none-any.whl
 gast==0.4.0
+google-ai-generativelanguage==0.4.0
+google-api-core==2.18.0
 google-auth==2.22.0
 google-auth-oauthlib==1.0.0
+google-generativeai==0.4.1
 google-pasta==0.2.0
-grpcio==1.58.0
+googleapis-common-protos==1.63.0
+grpcio==1.62.1
+grpcio-status==1.62.1
 h11==0.14.0
 h5py==3.9.0
 httpcore==1.0.4
@@ -64,7 +69,9 @@ pandas==2.1.4
 parso==0.8.3
 pexpect==4.9.0
 pillow==10.2.0
+platformdirs==4.2.0
 prompt-toolkit==3.0.43
+proto-plus==1.23.0
 protobuf==4.24.3
 ptyprocess==0.7.0
 pure-eval==0.2.2
@@ -97,8 +104,8 @@ tensorflow==2.13.0
 tensorflow-estimator==2.13.0
 tensorflow-macos==2.13.0
 termcolor==2.3.0
--e git+https://github.com/crystina-z/tevatron.git@b8f33900895930f9886012580e85464a5c1f7e9a#egg=tevatron
 tokenizers==0.15.2
+tomli==2.0.1
 torch==2.2.1
 tqdm==4.66.2
 traitlets==5.14.1
@@ -111,5 +118,6 @@ Werkzeug==2.3.7
 wget==3.2
 wrapt==1.15.0
 xxhash==3.4.1
+yapf==0.40.2
 yarl==1.9.4
 zipp==3.16.2

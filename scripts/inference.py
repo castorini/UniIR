@@ -10,7 +10,7 @@ from openai import AzureOpenAI
 from PIL import Image
 from transformers import AutoProcessor, LlavaForConditionalGeneration
 
-from scripts import generator_prompt
+import generator_prompt
 
 MAX_TOKENS = 200
 
@@ -132,7 +132,7 @@ def main():
     image_path = args.image_path
 
     images = []
-    if os.path.dirname(image_path):
+    if os.path.isdir(image_path):
         for file in os.listdir(image_path):
             images.append(os.path.join(image_path, file))
     else:
