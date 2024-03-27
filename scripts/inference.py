@@ -8,7 +8,9 @@ import google.generativeai as genai
 import openai
 from openai import AzureOpenAI
 from PIL import Image
-from transformers import AutoProcessor, LlavaForConditionalGeneration
+from transformers import (AutoProcessor, Blip2Processor,
+                          Blip2ForConditionalGeneration,
+                          LlavaForConditionalGeneration)
 
 import generator_prompt
 
@@ -88,9 +90,8 @@ def infer_llava(
     p_class: generator_prompt.Prompt,
     model_name: str = "llava-hf/llava-1.5-7b-hf",
 ):
-    model = LlavaForConditionalGeneration.from_pretrained(model_name,
-                                                 device_map="auto",
-                                                 low_cpu_mem_usage=True)
+    model = LlavaForConditionalGeneration.from_pretrained(
+        model_name, device_map="auto", low_cpu_mem_usage=True)
     processor = AutoProcessor.from_pretrained(model_name, use_fast=True)
 
     prompts = []
@@ -108,11 +109,43 @@ def infer_llava(
                        images=input_images,
                        padding=True,
                        return_tensors="pt").to("cuda")
-    output = model.generate(**inputs, max_new_tokens=20)
+    output = model.generate(**inputs, max_new_tokens=MAX_TOKENS)
     generated_text = processor.batch_decode(output, skip_special_tokens=True)
-    for text in generated_text:
-        print(f"Processed image: {image}")
+    for text, image_path in enumerate(generated_text, images):
+        print(f"Processed image: {image_path}")
         print(text.split("ASSISTANT:")[-1])
+        print("-" * 79)
+
+
+def infer_blip(
+    images: List[str],
+    p_class: generator_prompt.Prompt,
+    model_name: str = "Salesforce/blip2-flan-t5-xl",
+):
+    model = Blip2ForConditionalGeneration.from_pretrained(
+        model_name, device_map="auto", low_cpu_mem_usage=True)
+    processor = Blip2Processor.from_pretrained(model_name, use_fast=True)
+
+    prompts = []
+    input_images = []
+
+    for image_path in images:
+        image = Image.open(image_path)
+        input_images.append(image)
+
+        retrieval_results = {"hits": []}
+        message = p_class.prepare_message(retrieval_results)
+        prompts.append(message)
+
+    inputs = processor(prompts,
+                       images=input_images,
+                       padding=True,
+                       return_tensors="pt").to("cuda")
+    output = model.generate(**inputs, max_new_tokens=MAX_TOKENS)
+    generated_text = processor.batch_decode(output, skip_special_tokens=True)
+    for text, image_path in enumerate(generated_text, images):
+        print(f"Processed image: {image_path}")
+        print(text)
         print("-" * 79)
 
 
@@ -127,6 +160,7 @@ def main():
         "gpt": infer_gpt,
         "gemini": infer_gemini,
         "llava": infer_llava,
+        "blip": infer_blip
     }
 
     image_path = args.image_path
