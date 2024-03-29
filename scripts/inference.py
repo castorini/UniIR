@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 import json
 import os
 import pathlib
@@ -17,8 +18,8 @@ from transformers import (AutoProcessor, Blip2Processor,
 
 import generator_prompt
 
+# TODO: make these customizable by adding to args
 MAX_TOKENS = 200
-RETRIEVAL_BASE_PATH = "/store2/scratch/sjupadhy/mbeir_mscoco_output"
 MBIER_BASE_PATH = "/mnt/users/s8sharif/M-BEIR/"
 
 load_dotenv()
@@ -217,11 +218,22 @@ def main():
                         default=False,
                         help="Image path or dir")
     parser.add_argument('--prompt_file', default=False, help="Prompt file")
+    parser.add_argument('--k', type=int, default=0, help="Number of retrieved examples included in the prompt")
     parser.add_argument('--model_name', default="gpt")
     parser.add_argument('--index',
                         default="full",
                         help="Add start end indices in x_y format")
+    parser.add_argument('--output_dir', required=True,
+                        help="Base directory to store llm outputs, the output dir would be: output_dir/'model_name'_outputs/'retriever_name'_k")
+    parser.add_argument('--retrieved_results_path', required=True,
+                        help='path to the jsonl file containing query + candidates pairs')
+    parser.add_argument('--retriever_name', required=True,
+                        help="Name of the retriever that has retrieved input candidates")
     args = parser.parse_args()
+    if args.k == 0 and "-with-" in args.prompt_file:
+        raise ValueError("Invalid template file for zero-shot inference.")
+    elif args.k > 0 and "-without-" in args.prompt_file:
+        raise ValueError("Invalid template file for few-shot inference.")
 
     infer_mapping = {
         "gpt": infer_gpt,
@@ -252,9 +264,7 @@ def main():
 
     # Storing only relevant retrieval info
     retrieval_dict = {}
-    retrieval_jsonl_path = os.path.join(RETRIEVAL_BASE_PATH,
-                                        "mbeir_mscoco_image_to_text.jsonl")
-    with jsonlines.open(retrieval_jsonl_path) as reader:
+    with jsonlines.open(args.retrieved_results_path) as reader:
         for obj in tqdm(reader, desc='Reading docs'):
             if obj["query"]["query_img_path"]:
                 basename = os.path.basename(obj["query"]["query_img_path"])
@@ -266,11 +276,11 @@ def main():
             if len(retrieval_dict) == len(images):
                 break
 
-    p_class = generator_prompt.Prompt(args.prompt_file)
+    p_class = generator_prompt.Prompt(args.prompt_file, args.k)
     result = infer_mapping[args.model_name](images, p_class, retrieval_dict)
-
-    output_path = os.path.join(RETRIEVAL_BASE_PATH,
-                               f"{args.model_name}_{args.index}.json")
+    result_dir = os.path.join(args.output_dir, f"{args.model_name}_outputs", f'{args.retriever_name}_k{args.k}')
+    os.makedirs(result_dir, exist_ok=True)
+    output_path = os.path.join(result_dir, f"{args.index}_{datetime.isoformat(datetime.now())}.json")
     with open(output_path, "w") as outfile:
         json.dump(result, outfile)
     print(f"Output file at: {output_path}")

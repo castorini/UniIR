@@ -5,18 +5,24 @@ from mimetypes import guess_type
 
 class Prompt:
 
-    def __init__(self, prompt_file) -> None:
+    def __init__(self, prompt_file, k) -> None:
+        self.k = k
         with open(prompt_file) as p:
             self.prompt_template = "".join(p.readlines()).strip()
 
     def prepare_message(self, retrieval_results):
         examples = ""
         retrieval_results = retrieval_results or []
+        num_examples = min(self.k, len(retrieval_results))
         for index, hit in enumerate(retrieval_results):
+            if index == num_examples:
+                break
             examples += f"Passage{index+1}: {hit}\n"
-
-        prompt = self.prompt_template.format(examples=examples,
-                                             num=len(retrieval_results))
+        if self.k > 0:
+            prompt = self.prompt_template.format(examples=examples,
+                                                num=num_examples)
+        else:
+            prompt = self.prompt_template
         return prompt
 
     def encode_image_as_url(self, image_path):
@@ -31,12 +37,13 @@ class Prompt:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--prompt_file', default=False, help="Prompt file")
+    parser.add_argument('--k', default=0, help="Number of retrieved examples included in the prompt")
 
     args = parser.parse_args()
 
     retrieval_results = {"hits": []}
 
-    p = Prompt(args.prompt_file)
+    p = Prompt(args.prompt_file, args.k)
     print(p.prepare_message(retrieval_results))
 
 
