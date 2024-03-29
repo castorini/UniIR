@@ -11,12 +11,12 @@ class Prompt:
 
     def prepare_message(self, retrieval_results):
         examples = ""
-        for index, hit in enumerate(retrieval_results["hits"]):
-            examples += f"Passage{index+1}: {hit['content']}\n"
+        retrieval_results = retrieval_results or []
+        for index, hit in enumerate(retrieval_results):
+            examples += f"Passage{index+1}: {hit}\n"
 
         prompt = self.prompt_template.format(examples=examples,
-                                             num=len(
-                                                 retrieval_results["hits"]))
+                                             num=len(retrieval_results))
         return prompt
 
     def encode_image_as_url(self, image_path):

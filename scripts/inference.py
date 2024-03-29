@@ -1,8 +1,11 @@
 import argparse
+import json
 import os
 import pathlib
-from typing import List
+from tqdm import tqdm
+from typing import Dict, List
 
+import jsonlines
 from dotenv import load_dotenv
 import google.generativeai as genai
 import openai
@@ -15,13 +18,20 @@ from transformers import (AutoProcessor, Blip2Processor,
 import generator_prompt
 
 MAX_TOKENS = 200
+RETRIEVAL_BASE_PATH = "/store2/scratch/sjupadhy/mbeir_mscoco_output"
+MBIER_BASE_PATH = "/mnt/users/s8sharif/M-BEIR/"
 
 load_dotenv()
 
 
-def infer_gemini(images: List[str], p_class: generator_prompt.Prompt):
+def infer_gemini(
+    images: List[str],
+    p_class: generator_prompt.Prompt,
+    retrieval_dict: Dict[str, List[str]],
+):
     genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 
+    outputs = []
     for image in images:
         model = genai.GenerativeModel('gemini-pro-vision')
 
@@ -29,18 +39,27 @@ def infer_gemini(images: List[str], p_class: generator_prompt.Prompt):
             'mime_type': 'image/png',
             'data': pathlib.Path(image).read_bytes()
         }]
-        retrieval_results = {"hits": []}
-
+        retrieval_results = retrieval_dict.get(os.path.basename(image))
         message = p_class.prepare_message(retrieval_results)
 
         response = model.generate_content(model="gemini-pro-vision",
                                           content=[message, cookie_picture])
         print(f"Processed image: {image}")
         print(response.text)
+        outputs.append({
+            "image": image,
+            "prompt": message,
+            "response": response.text
+        })
         print("-" * 79)
+    return outputs
 
 
-def infer_gpt(images: List[str], p_class: generator_prompt.Prompt):
+def infer_gpt(
+    images: List[str],
+    p_class: generator_prompt.Prompt,
+    retrieval_dict: Dict[str, List[str]],
+):
     azure_openai_api_version = os.environ["AZURE_OPENAI_API_VERSION"]
     azure_openai_api_base = os.environ["AZURE_OPENAI_API_BASE"]
     open_ai_api_key = os.environ["OPEN_AI_API_KEY"]
@@ -50,9 +69,9 @@ def infer_gpt(images: List[str], p_class: generator_prompt.Prompt):
                          api_version=azure_openai_api_version,
                          azure_endpoint=azure_openai_api_base)
 
+    outputs = []
     for image in images:
-        retrieval_results = {"hits": []}
-
+        retrieval_results = retrieval_dict.get(os.path.basename(image))
         message = p_class.prepare_message(retrieval_results)
         encoded_image_url = p_class.encode_image_as_url(image)
 
@@ -82,58 +101,87 @@ def infer_gpt(images: List[str], p_class: generator_prompt.Prompt):
 
         print(f"Processed image: {image}")
         print(output)
+        outputs.append({"image": image, "prompt": message, "response": output})
         print("-" * 79)
+    return outputs
 
 
 def infer_llava(
     images: List[str],
     p_class: generator_prompt.Prompt,
+    retrieval_dict: Dict[str, List[str]],
     model_name: str = "llava-hf/llava-1.5-7b-hf",
+    bs: int = 4,
 ):
     model = LlavaForConditionalGeneration.from_pretrained(
-        model_name, device_map="auto", low_cpu_mem_usage=True)
-    processor = AutoProcessor.from_pretrained(model_name, use_fast=True)
+        model_name,
+        device_map="auto",
+        low_cpu_mem_usage=True,
+        cache_dir=os.environ["PYSERINI_CACHE"])
+    processor = AutoProcessor.from_pretrained(
+        model_name, use_fast=True, cache_dir=os.environ["PYSERINI_CACHE"])
 
     prompts = []
     input_images = []
 
     for image_path in images:
         image = Image.open(image_path)
-        input_images.append(image)
+        keep = image.copy()
+        input_images.append(keep)
+        image.close()
 
-        retrieval_results = {"hits": []}
+        retrieval_results = retrieval_dict.get(os.path.basename(image_path))
         message = p_class.prepare_message(retrieval_results)
         prompts.append(f"USER: <image>\n{message}\nASSISTANT:")
 
-    inputs = processor(prompts,
-                       images=input_images,
-                       padding=True,
-                       return_tensors="pt").to("cuda")
-    output = model.generate(**inputs, max_new_tokens=MAX_TOKENS)
-    generated_text = processor.batch_decode(output, skip_special_tokens=True)
-    for text, image_path in enumerate(generated_text, images):
-        print(f"Processed image: {image_path}")
-        print(text.split("ASSISTANT:")[-1])
-        print("-" * 79)
+    outputs = []
+    for i in tqdm(range(0, len(prompts), bs), desc='Batching inputs'):
+        inputs = processor(prompts[i:i + bs],
+                           images=input_images[i:i + bs],
+                           padding=True,
+                           return_tensors="pt").to("cuda")
+        output = model.generate(**inputs, max_new_tokens=MAX_TOKENS)
+        generated_text = processor.batch_decode(output,
+                                                skip_special_tokens=True)
+        for text, image_path, prompt in tqdm(
+                zip(generated_text, images[i:i + bs], prompts[i:i + bs])):
+            print(f"Processed image: {image_path}")
+            print(text.split("ASSISTANT:")[-1])
+            outputs.append({
+                "image": image_path,
+                "prompt": prompt,
+                "response": text.split("ASSISTANT:")[-1]
+            })
+            print("-" * 79)
+
+    return outputs
 
 
 def infer_blip(
     images: List[str],
     p_class: generator_prompt.Prompt,
+    retrieval_dict: Dict[str, List[str]],
     model_name: str = "Salesforce/blip2-flan-t5-xl",
+    bs: int = 4,
 ):
     model = Blip2ForConditionalGeneration.from_pretrained(
-        model_name, device_map="auto", low_cpu_mem_usage=True)
-    processor = Blip2Processor.from_pretrained(model_name, use_fast=True)
+        model_name,
+        device_map="auto",
+        low_cpu_mem_usage=True,
+        cache_dir=os.environ["PYSERINI_CACHE"])
+    processor = Blip2Processor.from_pretrained(
+        model_name, use_fast=True, cache_dir=os.environ["PYSERINI_CACHE"])
 
     prompts = []
     input_images = []
 
     for image_path in images:
         image = Image.open(image_path)
-        input_images.append(image)
+        keep = image.copy()
+        input_images.append(keep)
+        image.close()
 
-        retrieval_results = {"hits": []}
+        retrieval_results = retrieval_dict.get(os.path.basename(image))
         message = p_class.prepare_message(retrieval_results)
         prompts.append(message)
 
@@ -141,39 +189,91 @@ def infer_blip(
                        images=input_images,
                        padding=True,
                        return_tensors="pt").to("cuda")
-    output = model.generate(**inputs, max_new_tokens=MAX_TOKENS)
-    generated_text = processor.batch_decode(output, skip_special_tokens=True)
-    for text, image_path in enumerate(generated_text, images):
-        print(f"Processed image: {image_path}")
-        print(text)
-        print("-" * 79)
+    outputs = []
+    for i in tqdm(range(0, len(prompts), bs), desc='Batching inputs'):
+        inputs = processor(prompts[i:i + bs],
+                           images=input_images[i:i + bs],
+                           padding=True,
+                           return_tensors="pt").to("cuda")
+        output = model.generate(**inputs, max_new_tokens=MAX_TOKENS)
+        generated_text = processor.batch_decode(output,
+                                                skip_special_tokens=True)
+        for text, image_path, prompt in tqdm(
+                zip(generated_text, images[i:i + bs], prompts[i:i + bs])):
+            print(f"Processed image: {image_path}")
+            print(text)
+            outputs.append({
+                "image": image_path,
+                "prompt": prompt,
+                "response": text
+            })
+            print("-" * 79)
+    return outputs
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--image_path', default=False, help="Image path")
+    parser.add_argument('--image_path',
+                        default=False,
+                        help="Image path or dir")
     parser.add_argument('--prompt_file', default=False, help="Prompt file")
     parser.add_argument('--model_name', default="gpt")
+    parser.add_argument('--index',
+                        default="full",
+                        help="Add start end indices in x_y format")
     args = parser.parse_args()
 
     infer_mapping = {
         "gpt": infer_gpt,
         "gemini": infer_gemini,
         "llava": infer_llava,
-        "blip": infer_blip
+        "blip": infer_blip,
     }
 
     image_path = args.image_path
 
     images = []
+    basenames = []
     if os.path.isdir(image_path):
-        for file in os.listdir(image_path):
+        files = os.listdir(image_path)
+        if args.index == "full":
+            start = 0
+            end = len(files)
+        else:
+            temp = args.index.split("_")
+            start = int(temp[0])
+            end = int(temp[1])
+        for file in files[start:end]:
             images.append(os.path.join(image_path, file))
+            basenames.append(file)
     else:
         images = [image_path]
+        basenames = [os.path.basename(image_path)]
+
+    # Storing only relevant retrieval info
+    retrieval_dict = {}
+    retrieval_jsonl_path = os.path.join(RETRIEVAL_BASE_PATH,
+                                        "mbeir_mscoco_image_to_text.jsonl")
+    with jsonlines.open(retrieval_jsonl_path) as reader:
+        for obj in tqdm(reader, desc='Reading docs'):
+            if obj["query"]["query_img_path"]:
+                basename = os.path.basename(obj["query"]["query_img_path"])
+                if basename in basenames:
+                    candidates = []
+                    for cand in obj.get("candidates"):
+                        candidates.append(cand["txt"])
+                    retrieval_dict[basename] = candidates
+            if len(retrieval_dict) == len(images):
+                break
 
     p_class = generator_prompt.Prompt(args.prompt_file)
-    infer_mapping[args.model_name](images, p_class)
+    result = infer_mapping[args.model_name](images, p_class, retrieval_dict)
+
+    output_path = os.path.join(RETRIEVAL_BASE_PATH,
+                               f"{args.model_name}_{args.index}.json")
+    with open(output_path, "w") as outfile:
+        json.dump(result, outfile)
+    print(f"Output file at: {output_path}")
 
 
 if __name__ == '__main__':
