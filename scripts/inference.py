@@ -224,7 +224,7 @@ def main():
                         default="full",
                         help="Add start end indices in x_y format")
     parser.add_argument('--output_dir', required=True,
-                        help="directory to store llm outputs, the output path would be: output_dir/'model_name'_outputs/k")
+                        help="Base directory to store llm outputs, the output dir would be: output_dir/'model_name'_outputs/'retriever_name'_k")
     parser.add_argument('--retrieved_results_path', required=True,
                         help='path to the jsonl file containing query + candidates pairs')
     parser.add_argument('--retriever_name', required=True,
@@ -264,8 +264,7 @@ def main():
 
     # Storing only relevant retrieval info
     retrieval_dict = {}
-    retrieval_jsonl_path = os.path.join(args.retrieved_results_path)
-    with jsonlines.open(retrieval_jsonl_path) as reader:
+    with jsonlines.open(args.retrieved_results_path) as reader:
         for obj in tqdm(reader, desc='Reading docs'):
             if obj["query"]["query_img_path"]:
                 basename = os.path.basename(obj["query"]["query_img_path"])
