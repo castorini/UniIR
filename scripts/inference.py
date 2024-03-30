@@ -280,9 +280,8 @@ def main():
                     for cand in obj.get("candidates"):
                         candidates.append(cand["txt"])
                     retrieval_dict[basename] = (obj["query"]["qid"], candidates)
-                    images.append(image)
-            if len(retrieval_dict) == len(images):
-                break
+                    images.append(os.path.join(MBIER_BASE_PATH, image))
+        assert len(retrieval_dict) == len(images), "The number of images and queries should be equal"
 
     p_class = generator_prompt.Prompt(args.prompt_file, args.k)
     result = infer_mapping[args.model_name](images, p_class, retrieval_dict)
