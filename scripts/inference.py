@@ -34,8 +34,6 @@ def infer_gemini(
 
     outputs = []
     for image in images:
-        if os.path.basename(image) not in retrieval_dict:
-            continue
         model = genai.GenerativeModel('gemini-pro-vision')
 
         cookie_picture = [{
@@ -75,8 +73,6 @@ def infer_gpt(
 
     outputs = []
     for image in images:
-        if os.path.basename(image) not in retrieval_dict:
-            continue
         qid, retrieval_results = retrieval_dict.get(os.path.basename(image))
         message = p_class.prepare_message(retrieval_results)
         encoded_image_url = p_class.encode_image_as_url(image)
@@ -136,8 +132,6 @@ def infer_llava(
     input_images = []
 
     for image_path in images:
-        if os.path.basename(image_path) not in retrieval_dict:
-            continue
         image = Image.open(image_path)
         keep = image.copy()
         input_images.append(keep)
@@ -190,8 +184,6 @@ def infer_blip(
     input_images = []
 
     for image_path in images:
-        if os.path.basename(image_path) not in retrieval_dict:
-            continue
         image = Image.open(image_path)
         keep = image.copy()
         input_images.append(keep)
@@ -260,7 +252,6 @@ def main():
 
     image_path = args.image_path
 
-    images = []
     basenames = []
     if os.path.isdir(image_path):
         files = os.listdir(image_path)
@@ -272,23 +263,24 @@ def main():
             start = int(temp[0])
             end = int(temp[1])
         for file in files[start:end]:
-            images.append(os.path.join(image_path, file))
             basenames.append(file)
     else:
-        images = [image_path]
         basenames = [os.path.basename(image_path)]
 
     # Storing only relevant retrieval info
     retrieval_dict = {}
+    images = []
     with jsonlines.open(args.retrieved_results_path) as reader:
         for obj in tqdm(reader, desc='Reading docs'):
-            if obj["query"]["query_img_path"]:
-                basename = os.path.basename(obj["query"]["query_img_path"])
+            image = obj["query"]["query_img_path"]
+            if image:
+                basename = os.path.basename(image)
                 if basename in basenames:
                     candidates = []
                     for cand in obj.get("candidates"):
                         candidates.append(cand["txt"])
                     retrieval_dict[basename] = (obj["query"]["qid"], candidates)
+                    images.append(images)
             if len(retrieval_dict) == len(images):
                 break
 
