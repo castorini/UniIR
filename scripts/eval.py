@@ -13,9 +13,6 @@ from pycocoevalcap.tokenizer.ptbtokenizer import PTBTokenizer
 
 import candidate_retrieval as cr
 
-RETRIEVAL_BASE_PATH = "/store2/scratch/sjupadhy/mbeir_mscoco_output"
-
-
 def file_in_dir(dirname, extension):
     if os.path.isdir(dirname):
         files = os.listdir(dirname)
@@ -43,6 +40,7 @@ def main():
                         required=True,
                         help="Path to jsonl file containing the candidates")
     parser.add_argument('--result_dir', required=True, help="Result directory")
+    parser.add_argument('--retrieval_jsonl_path', required=True, help="Path to the retrieved jsonl queries that also contain positive candidates list for ground truth")
     args = parser.parse_args()
 
     res_files = file_in_dir(args.result_dir, ".json")
@@ -59,7 +57,7 @@ def main():
     gts = {}
     retrieval_jsonl_path =  "/store2/scratch/s8sharif/UniIR/data/UniIR/retrieval_results/CLIP_SF/Large/Instruct/InBatch/run_files/mbeir_mscoco_task3_union_pool_test_k10_run_2024-03-27 15:28:49.276449.jsonl"
 
-    with jsonlines.open(retrieval_jsonl_path) as reader:
+    with jsonlines.open(args.retrieval_jsonl_path) as reader:
         for obj in tqdm(reader, desc='Reading docs'):
             img =  os.path.basename(obj["query"]["query_img_path"])
             if img in res:
@@ -74,6 +72,8 @@ def main():
             if len(gts) == len(res):
                 break
     print(f"ground truth count: {len(gts)}")
+
+    # Tokenize before eval
     gts = convert_to_tokenizer_input_format(gts)
     res = convert_to_tokenizer_input_format(res)
     tokenizer = PTBTokenizer()
