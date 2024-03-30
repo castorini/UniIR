@@ -44,7 +44,7 @@ def main():
         with open(file, 'r') as file:
             data = json.load(file)
         for ind in data:
-            res[ind["qid"]] = [ind["response"]]
+            res[os.path.basename(ind["image"])] = [ind["response"]]
 
     clu = cr.CandidateLookUp(args.candidate_path)
     gts = {}
@@ -52,14 +52,15 @@ def main():
                                         "mbeir_mscoco_image_to_text.jsonl")
     with jsonlines.open(retrieval_jsonl_path) as reader:
         for obj in tqdm(reader, desc='Reading docs'):
-            qid = obj["query"]["qid"] if obj["query"]["query_img_path"] else ""
-            if qid in res:
+            image_path = obj["query"]["query_img_path"] if obj["query"]["query_img_path"] else ""
+            basename = os.path.basename(image_path)
+            if basename in res:
                 pos_cand = obj["query"]["pos_cand_list"]
                 candidates = []
                 for cand in pos_cand:
                     candidates.append(
                         clu.retrieve_candidate_txt_from_did(cand))
-                gts[qid] = candidates
+                gts[basename] = candidates
             if len(gts) == len(res):
                 break
     print(f"ground truth count: {len(gts)}")
