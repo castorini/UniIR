@@ -55,8 +55,6 @@ def main():
 
     clu = cr.CandidateLookUp(args.candidate_path)
     gts = {}
-    retrieval_jsonl_path =  "/store2/scratch/s8sharif/UniIR/data/UniIR/retrieval_results/CLIP_SF/Large/Instruct/InBatch/run_files/mbeir_mscoco_task3_union_pool_test_k10_run_2024-03-27 15:28:49.276449.jsonl"
-
     with jsonlines.open(args.retrieval_jsonl_path) as reader:
         for obj in tqdm(reader, desc='Reading docs'):
             img =  os.path.basename(obj["query"]["query_img_path"])
@@ -69,6 +67,7 @@ def main():
                 gts[img] = candidates
             else:
                 assert False, "retrieved queries and llm queies must match"
+
             if len(gts) == len(res):
                 break
     print(f"ground truth count: {len(gts)}")
