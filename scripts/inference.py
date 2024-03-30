@@ -4,7 +4,7 @@ import json
 import os
 import pathlib
 from tqdm import tqdm
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import jsonlines
 from dotenv import load_dotenv
@@ -28,7 +28,7 @@ load_dotenv()
 def infer_gemini(
     images: List[str],
     p_class: generator_prompt.Prompt,
-    retrieval_dict: Dict[str, List[str]],
+    retrieval_dict: Dict[str, Tuple[str, List[str]]],
 ):
     genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 
@@ -40,7 +40,7 @@ def infer_gemini(
             'mime_type': 'image/png',
             'data': pathlib.Path(image).read_bytes()
         }]
-        retrieval_results = retrieval_dict.get(os.path.basename(image))
+        qid, retrieval_results = retrieval_dict.get(os.path.basename(image))
         message = p_class.prepare_message(retrieval_results)
 
         response = model.generate_content(model="gemini-pro-vision",
@@ -48,6 +48,7 @@ def infer_gemini(
         print(f"Processed image: {image}")
         print(response.text)
         outputs.append({
+            "qid": qid,
             "image": image,
             "prompt": message,
             "response": response.text
@@ -59,7 +60,7 @@ def infer_gemini(
 def infer_gpt(
     images: List[str],
     p_class: generator_prompt.Prompt,
-    retrieval_dict: Dict[str, List[str]],
+    retrieval_dict: Dict[str, Tuple[str, List[str]]],
 ):
     azure_openai_api_version = os.environ["AZURE_OPENAI_API_VERSION"]
     azure_openai_api_base = os.environ["AZURE_OPENAI_API_BASE"]
@@ -72,7 +73,7 @@ def infer_gpt(
 
     outputs = []
     for image in images:
-        retrieval_results = retrieval_dict.get(os.path.basename(image))
+        qid, retrieval_results = retrieval_dict.get(os.path.basename(image))
         message = p_class.prepare_message(retrieval_results)
         encoded_image_url = p_class.encode_image_as_url(image)
 
@@ -102,7 +103,12 @@ def infer_gpt(
 
         print(f"Processed image: {image}")
         print(output)
-        outputs.append({"image": image, "prompt": message, "response": output})
+        outputs.append({
+            "qid": qid,
+            "image": image,
+            "prompt": message,
+            "response": output
+        })
         print("-" * 79)
     return outputs
 
@@ -110,7 +116,7 @@ def infer_gpt(
 def infer_llava(
     images: List[str],
     p_class: generator_prompt.Prompt,
-    retrieval_dict: Dict[str, List[str]],
+    retrieval_dict: Dict[str, Tuple[str, List[str]]],
     model_name: str = "llava-hf/llava-1.5-7b-hf",
     bs: int = 4,
 ):
@@ -131,7 +137,7 @@ def infer_llava(
         input_images.append(keep)
         image.close()
 
-        retrieval_results = retrieval_dict.get(os.path.basename(image_path))
+        qid, retrieval_results = retrieval_dict.get(os.path.basename(image_path))
         message = p_class.prepare_message(retrieval_results)
         prompts.append(f"USER: <image>\n{message}\nASSISTANT:")
 
@@ -149,6 +155,7 @@ def infer_llava(
             print(f"Processed image: {image_path}")
             print(text.split("ASSISTANT:")[-1])
             outputs.append({
+                "qid": qid,
                 "image": image_path,
                 "prompt": prompt,
                 "response": text.split("ASSISTANT:")[-1]
@@ -161,7 +168,7 @@ def infer_llava(
 def infer_blip(
     images: List[str],
     p_class: generator_prompt.Prompt,
-    retrieval_dict: Dict[str, List[str]],
+    retrieval_dict: Dict[str, Tuple[str, List[str]]],
     model_name: str = "Salesforce/blip2-flan-t5-xl",
     bs: int = 4,
 ):
@@ -182,7 +189,7 @@ def infer_blip(
         input_images.append(keep)
         image.close()
 
-        retrieval_results = retrieval_dict.get(os.path.basename(image))
+        qid, retrieval_results = retrieval_dict.get(os.path.basename(image))
         message = p_class.prepare_message(retrieval_results)
         prompts.append(message)
 
@@ -204,6 +211,7 @@ def infer_blip(
             print(f"Processed image: {image_path}")
             print(text)
             outputs.append({
+                "qid": qid,
                 "image": image_path,
                 "prompt": prompt,
                 "response": text
@@ -244,7 +252,6 @@ def main():
 
     image_path = args.image_path
 
-    images = []
     basenames = []
     if os.path.isdir(image_path):
         files = os.listdir(image_path)
@@ -256,25 +263,25 @@ def main():
             start = int(temp[0])
             end = int(temp[1])
         for file in files[start:end]:
-            images.append(os.path.join(image_path, file))
             basenames.append(file)
     else:
-        images = [image_path]
         basenames = [os.path.basename(image_path)]
 
     # Storing only relevant retrieval info
     retrieval_dict = {}
+    images = []
     with jsonlines.open(args.retrieved_results_path) as reader:
         for obj in tqdm(reader, desc='Reading docs'):
-            if obj["query"]["query_img_path"]:
-                basename = os.path.basename(obj["query"]["query_img_path"])
+            image = obj["query"]["query_img_path"]
+            if image:
+                basename = os.path.basename(image)
                 if basename in basenames:
                     candidates = []
                     for cand in obj.get("candidates"):
                         candidates.append(cand["txt"])
-                    retrieval_dict[basename] = candidates
-            if len(retrieval_dict) == len(images):
-                break
+                    retrieval_dict[basename] = (obj["query"]["qid"], candidates)
+                    images.append(os.path.join(MBIER_BASE_PATH, image))
+        assert len(retrieval_dict) == len(images), "The number of images and queries should be equal"
 
     p_class = generator_prompt.Prompt(args.prompt_file, args.k)
     result = infer_mapping[args.model_name](images, p_class, retrieval_dict)
