@@ -5,7 +5,7 @@ from tqdm import tqdm
 
 import jsonlines
 from pycocoevalcap.bleu.bleu import Bleu
-from pycocoevalcap.cider.cider import Cider
+from pycocoevalcap.cider.cider import Cider, CiderScorer
 from pycocoevalcap.meteor.meteor import Meteor
 from pycocoevalcap.rouge.rouge import Rouge
 from pycocoevalcap.spice.spice import Spice
@@ -27,13 +27,22 @@ def file_in_dir(dirname, extension):
         result = []
     return result
 
+def convert_to_tokenizer_input_format(dictionary):
+    new_dictionary = {}
+    for id, captions in dictionary.items():
+        captions_list = []
+        for c in captions:
+            captions_list.append({"image_id": id, "caption": c})
+        new_dictionary[id] = captions_list
+    return new_dictionary
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--candidate_path',
                         default=False,
+                        required=True,
                         help="Path to jsonl file containing the candidates")
-    parser.add_argument('--result_dir', help="Result directory")
+    parser.add_argument('--result_dir', required=True, help="Result directory")
     args = parser.parse_args()
 
     res_files = file_in_dir(args.result_dir, ".json")
@@ -44,33 +53,32 @@ def main():
         with open(file, 'r') as file:
             data = json.load(file)
         for ind in data:
-            res[ind["qid"]] = [ind["response"]]
+            res[os.path.basename(ind["image"])] = [ind["response"]]
 
     clu = cr.CandidateLookUp(args.candidate_path)
     gts = {}
-    retrieval_jsonl_path = os.path.join(RETRIEVAL_BASE_PATH,
-                                        "mbeir_mscoco_image_to_text.jsonl")
+    retrieval_jsonl_path =  "/store2/scratch/s8sharif/UniIR/data/UniIR/retrieval_results/CLIP_SF/Large/Instruct/InBatch/run_files/mbeir_mscoco_task3_union_pool_test_k10_run_2024-03-27 15:28:49.276449.jsonl"
+
     with jsonlines.open(retrieval_jsonl_path) as reader:
         for obj in tqdm(reader, desc='Reading docs'):
-            qid = obj["query"]["qid"] if obj["query"]["query_img_path"] else ""
-            if qid in res:
+            img =  os.path.basename(obj["query"]["query_img_path"])
+            if img in res:
                 pos_cand = obj["query"]["pos_cand_list"]
                 candidates = []
                 for cand in pos_cand:
                     candidates.append(
                         clu.retrieve_candidate_txt_from_did(cand))
-                gts[qid] = candidates
+                gts[img] = candidates
+            else:
+                assert False, "retrieved queries and llm queies must match"
             if len(gts) == len(res):
                 break
     print(f"ground truth count: {len(gts)}")
-
-    res_filter = {}
-    for file in res:
-        if file in gts:
-            res_filter[file] = res[file]
-    print(
-        f"Filtered files count: {len(res)} - {len(res_filter)} = {len(res) - len(res_filter)}"
-    )
+    gts = convert_to_tokenizer_input_format(gts)
+    res = convert_to_tokenizer_input_format(res)
+    tokenizer = PTBTokenizer()
+    _gts = tokenizer.tokenize(gts)
+    _res = tokenizer.tokenize(res)
 
     scorers = [
         Bleu(),
@@ -84,7 +92,7 @@ def main():
     ]
     result = {}
     for sc, scn in zip(scorers, scorers_names):
-        score, scores = sc.compute_score(gts, res_filter)
+        score, _ = sc.compute_score(_gts, _res)
         print(f"{scn}: {score}")
         result[scn] = score
 
