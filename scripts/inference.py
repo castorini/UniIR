@@ -4,7 +4,7 @@ import json
 import os
 import pathlib
 from tqdm import tqdm
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import jsonlines
 from dotenv import load_dotenv
@@ -28,19 +28,21 @@ load_dotenv()
 def infer_gemini(
     images: List[str],
     p_class: generator_prompt.Prompt,
-    retrieval_dict: Dict[str, List[str]],
+    retrieval_dict: Dict[str, Tuple[str, List[str]]],
 ):
     genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 
     outputs = []
     for image in images:
+        if os.path.basename(image) not in retrieval_dict:
+            continue
         model = genai.GenerativeModel('gemini-pro-vision')
 
         cookie_picture = [{
             'mime_type': 'image/png',
             'data': pathlib.Path(image).read_bytes()
         }]
-        retrieval_results = retrieval_dict.get(os.path.basename(image))
+        qid, retrieval_results = retrieval_dict.get(os.path.basename(image))
         message = p_class.prepare_message(retrieval_results)
 
         response = model.generate_content(model="gemini-pro-vision",
@@ -48,6 +50,7 @@ def infer_gemini(
         print(f"Processed image: {image}")
         print(response.text)
         outputs.append({
+            "qid": qid,
             "image": image,
             "prompt": message,
             "response": response.text
@@ -59,7 +62,7 @@ def infer_gemini(
 def infer_gpt(
     images: List[str],
     p_class: generator_prompt.Prompt,
-    retrieval_dict: Dict[str, List[str]],
+    retrieval_dict: Dict[str, Tuple[str, List[str]]],
 ):
     azure_openai_api_version = os.environ["AZURE_OPENAI_API_VERSION"]
     azure_openai_api_base = os.environ["AZURE_OPENAI_API_BASE"]
@@ -72,7 +75,9 @@ def infer_gpt(
 
     outputs = []
     for image in images:
-        retrieval_results = retrieval_dict.get(os.path.basename(image))
+        if os.path.basename(image) not in retrieval_dict:
+            continue
+        qid, retrieval_results = retrieval_dict.get(os.path.basename(image))
         message = p_class.prepare_message(retrieval_results)
         encoded_image_url = p_class.encode_image_as_url(image)
 
@@ -102,7 +107,12 @@ def infer_gpt(
 
         print(f"Processed image: {image}")
         print(output)
-        outputs.append({"image": image, "prompt": message, "response": output})
+        outputs.append({
+            "qid": qid,
+            "image": image,
+            "prompt": message,
+            "response": output
+        })
         print("-" * 79)
     return outputs
 
@@ -110,7 +120,7 @@ def infer_gpt(
 def infer_llava(
     images: List[str],
     p_class: generator_prompt.Prompt,
-    retrieval_dict: Dict[str, List[str]],
+    retrieval_dict: Dict[str, Tuple[str, List[str]]],
     model_name: str = "llava-hf/llava-1.5-7b-hf",
     bs: int = 4,
 ):
@@ -126,12 +136,14 @@ def infer_llava(
     input_images = []
 
     for image_path in images:
+        if os.path.basename(image_path) not in retrieval_dict:
+            continue
         image = Image.open(image_path)
         keep = image.copy()
         input_images.append(keep)
         image.close()
 
-        retrieval_results = retrieval_dict.get(os.path.basename(image_path))
+        qid, retrieval_results = retrieval_dict.get(os.path.basename(image_path))
         message = p_class.prepare_message(retrieval_results)
         prompts.append(f"USER: <image>\n{message}\nASSISTANT:")
 
@@ -149,6 +161,7 @@ def infer_llava(
             print(f"Processed image: {image_path}")
             print(text.split("ASSISTANT:")[-1])
             outputs.append({
+                "qid": qid,
                 "image": image_path,
                 "prompt": prompt,
                 "response": text.split("ASSISTANT:")[-1]
@@ -161,7 +174,7 @@ def infer_llava(
 def infer_blip(
     images: List[str],
     p_class: generator_prompt.Prompt,
-    retrieval_dict: Dict[str, List[str]],
+    retrieval_dict: Dict[str, Tuple[str, List[str]]],
     model_name: str = "Salesforce/blip2-flan-t5-xl",
     bs: int = 4,
 ):
@@ -177,12 +190,14 @@ def infer_blip(
     input_images = []
 
     for image_path in images:
+        if os.path.basename(image_path) not in retrieval_dict:
+            continue
         image = Image.open(image_path)
         keep = image.copy()
         input_images.append(keep)
         image.close()
 
-        retrieval_results = retrieval_dict.get(os.path.basename(image))
+        qid, retrieval_results = retrieval_dict.get(os.path.basename(image))
         message = p_class.prepare_message(retrieval_results)
         prompts.append(message)
 
@@ -204,6 +219,7 @@ def infer_blip(
             print(f"Processed image: {image_path}")
             print(text)
             outputs.append({
+                "qid": qid,
                 "image": image_path,
                 "prompt": prompt,
                 "response": text
@@ -272,7 +288,7 @@ def main():
                     candidates = []
                     for cand in obj.get("candidates"):
                         candidates.append(cand["txt"])
-                    retrieval_dict[basename] = candidates
+                    retrieval_dict[basename] = (obj["query"]["qid"], candidates)
             if len(retrieval_dict) == len(images):
                 break
 
