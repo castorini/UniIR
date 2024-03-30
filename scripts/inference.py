@@ -280,7 +280,7 @@ def main():
                     for cand in obj.get("candidates"):
                         candidates.append(cand["txt"])
                     retrieval_dict[basename] = (obj["query"]["qid"], candidates)
-                    images.append(images)
+                    images.append(image)
             if len(retrieval_dict) == len(images):
                 break
 
