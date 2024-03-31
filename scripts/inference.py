@@ -130,6 +130,7 @@ def infer_llava(
 
     prompts = []
     input_images = []
+    qids = []
 
     for image_path in images:
         image = Image.open(image_path)
@@ -140,6 +141,7 @@ def infer_llava(
         qid, retrieval_results = retrieval_dict.get(os.path.basename(image_path))
         message = p_class.prepare_message(retrieval_results)
         prompts.append(f"USER: <image>\n{message}\nASSISTANT:")
+        qids.append(qid)
 
     outputs = []
     for i in tqdm(range(0, len(prompts), bs), desc='Batching inputs'):
@@ -150,8 +152,8 @@ def infer_llava(
         output = model.generate(**inputs, max_new_tokens=MAX_TOKENS)
         generated_text = processor.batch_decode(output,
                                                 skip_special_tokens=True)
-        for text, image_path, prompt in tqdm(
-                zip(generated_text, images[i:i + bs], prompts[i:i + bs])):
+        for text, image_path, prompt, qid in tqdm(
+                zip(generated_text, images[i:i + bs], prompts[i:i + bs], qids[i: i + bs])):
             print(f"Processed image: {image_path}")
             print(text.split("ASSISTANT:")[-1])
             outputs.append({
@@ -182,6 +184,7 @@ def infer_blip(
 
     prompts = []
     input_images = []
+    qids = []
 
     for image_path in images:
         image = Image.open(image_path)
@@ -192,6 +195,7 @@ def infer_blip(
         qid, retrieval_results = retrieval_dict.get(os.path.basename(image))
         message = p_class.prepare_message(retrieval_results)
         prompts.append(message)
+        qids.append(qid)
 
     inputs = processor(prompts,
                        images=input_images,
@@ -206,8 +210,8 @@ def infer_blip(
         output = model.generate(**inputs, max_new_tokens=MAX_TOKENS)
         generated_text = processor.batch_decode(output,
                                                 skip_special_tokens=True)
-        for text, image_path, prompt in tqdm(
-                zip(generated_text, images[i:i + bs], prompts[i:i + bs])):
+        for text, image_path, prompt, qid in tqdm(
+                zip(generated_text, images[i:i + bs], prompts[i:i + bs], qids[i:i + bs])):
             print(f"Processed image: {image_path}")
             print(text)
             outputs.append({
