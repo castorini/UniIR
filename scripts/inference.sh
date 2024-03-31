@@ -6,7 +6,7 @@ bs=512
 image_path=/mnt/users/s8sharif/M-BEIR/mbeir_images/mscoco_images/val2014
 image_count=$(ls $image_path | wc -l)
 echo $image_count
-k=5
+k=10
 
 for ((i = 0; i < $image_count; i += $bs)); do
     next_index=$((i + bs))
