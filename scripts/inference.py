@@ -4,6 +4,7 @@ import json
 import os
 import pathlib
 from tqdm import tqdm
+import time
 from typing import Dict, List, Tuple
 
 import jsonlines
@@ -19,7 +20,7 @@ from transformers import (AutoProcessor, Blip2Processor,
 import generator_prompt
 
 # TODO: make these customizable by adding to args
-MAX_TOKENS = 200
+MAX_TOKENS = 300
 MBIER_BASE_PATH = "/mnt/users/s8sharif/M-BEIR/"
 
 load_dotenv()
@@ -90,16 +91,22 @@ def infer_gpt(
                 }
             }]
         }]
-
-        try:
-            response = client.chat.completions.create(model=deployment_name,
-                                                      messages=messages,
-                                                      max_tokens=MAX_TOKENS)
-            output = response.choices[0].message.content.lower(
-            ) if response.choices[0].message.content else ""
-        except openai.BadRequestError as e:
-            print(f"Encountered {e}")
-            output = ""
+        while True:
+            try:
+                response = client.chat.completions.create(model=deployment_name,
+                                                        messages=messages,
+                                                        temperature=0,
+                                                        max_tokens=MAX_TOKENS)
+                output = response.choices[0].message.content.lower(
+                ) if response.choices[0].message.content else ""
+                break
+            except Exception as e:
+                # Repeating the request won't help if OpenAI refuses to create the caption due to policy violation
+                if 'ResponsibleAIPolicyViolation' in str(e):
+                    output= ""
+                    break
+                print(f"Encountered {e}")
+                time.sleep(0.1)
 
         print(f"Processed image: {image}")
         print(output)
