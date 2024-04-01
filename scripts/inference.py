@@ -1,6 +1,7 @@
 import argparse
 from datetime import datetime
 import json
+from mimetypes import guess_type
 import os
 import pathlib
 from tqdm import tqdm
@@ -8,13 +9,13 @@ from typing import Dict, List, Tuple
 
 import jsonlines
 from dotenv import load_dotenv
-import google.generativeai as genai
 import openai
 from openai import AzureOpenAI
 from PIL import Image
 from transformers import (AutoProcessor, Blip2Processor,
                           Blip2ForConditionalGeneration,
                           LlavaForConditionalGeneration)
+from vertexai.preview.generative_models import GenerativeModel
 
 import generator_prompt
 
@@ -30,14 +31,13 @@ def infer_gemini(
     p_class: generator_prompt.Prompt,
     retrieval_dict: Dict[str, Tuple[str, List[str]]],
 ):
-    genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
-
+    
     outputs = []
     for image in images:
-        model = genai.GenerativeModel('gemini-pro-vision')
+        model = GenerativeModel('gemini-pro-vision')
 
         cookie_picture = [{
-            'mime_type': 'image/png',
+            'mime_type': guess_type(image)[0],
             'data': pathlib.Path(image).read_bytes()
         }]
         qid, retrieval_results = retrieval_dict.get(os.path.basename(image))
