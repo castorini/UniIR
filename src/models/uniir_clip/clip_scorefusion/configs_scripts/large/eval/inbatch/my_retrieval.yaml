@@ -1,0 +1,33 @@
+experiment:
+  description: ${model.name} ${model.size} ${experiment.instruct_status} ${experiment.exp_name}
+  exp_name: InBatch
+  instruct_status: Instruct
+  path_suffix: ${model.short_name}/${model.size}/${experiment.instruct_status}/${experiment.exp_name}/
+model:
+  name: CLIPScoreFusion
+  short_name: CLIP_SF
+  size: Large
+retrieval_config:
+  candidate_dir_name: cand_pool/global
+  embed_dir_name: embed
+  index_dir_name: index
+  query_dir_name: query
+  results_dir_name: retrieval_results
+  test_datasets_config:
+    correspond_cand_pools_name:
+    - UNION
+    - UNION
+    datasets_name:
+    - mscoco_task0
+    - mscoco_task3
+    enable_retrieve: true
+  train_datasets_config:
+    correspond_cand_pools_name: null
+    datasets_name: null
+    enable_retrieve: false
+  val_datasets_config:
+    correspond_cand_pools_name: null
+    correspond_qrels_name: null
+    datasets_name: null
+    enable_retrieve: false
+  write_to_tsv: false
