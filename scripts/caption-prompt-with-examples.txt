@@ -1,8 +1,0 @@
-You are an intelligent assistant that can comprehend passages related with the image (passed as input) based on their relevancy.
-I will provide you with {num} passages, each indicated by number identifier [].
-You have to provide an appropriate caption for the image based on the provided passages, logical reasoning, internal knowledge and common sense.
-The caption should be detailed, accurate and representitve of the image.
-
-{examples}
-
-Only response the caption, do not say any word or explain.
