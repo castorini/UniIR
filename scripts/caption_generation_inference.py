@@ -18,6 +18,8 @@ from transformers import (
     LlavaNextForConditionalGeneration,
     LlavaNextProcessor,
 )
+import vertexai
+from vertexai import generative_models
 from vertexai.preview.generative_models import GenerativeModel
 
 import generator_prompt
@@ -38,27 +40,32 @@ def infer_gemini(
     max_output_tokens: int,
     samples_dir: str,
 ):
+    vertexai.init(
+        project=os.environ["GCLOUD_PROJECT"], location=os.environ["GCLOUD_REGION"]
+    )
 
     outputs = []
-    for image in images:
-        model = GenerativeModel("gemini-1.5-pro")
+    for idx, image_path in enumerate(images):
+        model = GenerativeModel("")
+        temp = generative_models.Image.load_from_file(image_path)
+        image_data = generative_models.Part.from_image(temp)
 
-        cookie_picture = [
-            {
-                "mime_type": guess_type(image)[0],
-                "data": pathlib.Path(image).read_bytes(),
-            }
-        ]
-        qid, retrieval_results = retrieval_dict.get(os.path.basename(image))
+        qid, retrieval_results = retrieval_dict.get(image_path)
         message = p_class.prepare_message(retrieval_results)
-
-        response = model.generate_content(
-            model="gemini-1.5-pro", content=[message, cookie_picture]
-        )
-        print(f"Processed image: {image}")
-        print(response.text)
+        content = [message, image_data]
+        if idx < 10:
+            with open(f"{samples_dir}/prompt_{idx}.txt", "w") as f:
+                json.dump(content, f)
+                f.write("\n")
+        try:
+            response = model.generate_content(content)
+            print(f"Processed image: {image_path}")
+            print(response.text)
+            output = response.text
+        except:
+            output = ""
         outputs.append(
-            {"qid": qid, "image": image, "prompt": message, "response": response.text}
+            {"qid": qid, "image": image_path, "prompt": message, "response": output}
         )
         print("-" * 79)
     return outputs
