@@ -5,6 +5,7 @@ import json
 from mimetypes import guess_type
 import os
 import pathlib
+import time
 from tqdm import tqdm
 from typing import Dict, List, Tuple
 
@@ -142,18 +143,28 @@ def infer_gpt(
             with open(f"{samples_dir}/prompt_{idx}.txt", "w") as f:
                 json.dump(messages, f)
                 f.write("\n")
-        try:
-            response = client.chat.completions.create(
-                model=deployment_name, messages=messages, max_tokens=max_output_tokens
-            )
-            output = (
-                response.choices[0].message.content.lower()
-                if response.choices[0].message.content
-                else ""
-            )
-        except openai.BadRequestError as e:
-            print(f"Encountered {e}")
-            output = ""
+        while True:
+            # Try calling the inference in a while loop to avoid errors related to rate limits, API unreliablity, connection issues, etc.
+            try:
+                response = client.chat.completions.create(
+                    model=deployment_name,
+                    messages=messages,
+                    max_tokens=max_output_tokens,
+                )
+                output = (
+                    response.choices[0].message.content.lower()
+                    if response.choices[0].message.content
+                    else ""
+                )
+                break
+            except Exception as e:
+                # Repeating the request won't help if OpenAI refuses to create the caption due to policy violation.
+                if "ResponsibleAIPolicyViolation" in str(e):
+                    output = ""
+                    break
+                print(f"Encountered {e}")
+                # Wait for a second before retrying the request
+                time.sleep(1)
 
         print(f"Processed image: {image}")
         print(output)
