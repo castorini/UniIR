@@ -103,7 +103,7 @@ class Prompt:
             if index == num_examples:
                 break
             assert hit[0]
-            captions.append(hit[0])
+            captions.append(f"Caption [{index+1}]: {hit[0]}")
         return captions
 
 
