@@ -166,10 +166,10 @@ def infer_gpt(
                 # Wait for a second before retrying the request
                 time.sleep(1)
 
-        print(f"Processed image: {image}")
+        print(f"Processed image: {image_path}")
         print(output)
         outputs.append(
-            {"qid": qid, "image": image, "prompt": messages, "response": output}
+            {"qid": qid, "image": image_path, "prompt": message, "response": output}
         )
         print("-" * 79)
     return outputs
