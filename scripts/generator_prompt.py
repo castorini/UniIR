@@ -3,6 +3,8 @@ import base64
 from mimetypes import guess_type
 
 from PIL import Image
+from vertexai import generative_models
+
 
 
 class Prompt:
@@ -36,6 +38,14 @@ class Prompt:
             prompt = self.prompt_template.format(num=num_examples)
         else:
             prompt = self.prompt_template
+        return prompt
+    
+    def prepare_gemini_message(self, num_candidates):
+        num_examples = min(self.k, num_candidates)
+        if self.k > 0:
+            prompt = self.prompt_template.format(num=num_examples)
+        else:
+            prompt = self.prompt_template.format(num=num_examples)
         return prompt
 
     def merge_images(self, retrieval_results, query_image_path, dist_images=5):
@@ -95,6 +105,17 @@ class Prompt:
             assert hit[1]
             image_urls.append(self.encode_image_as_url(hit[1]))
         return image_urls
+    
+    def get_fewshot_image_data(self, retrieval_results):
+        num_examples = min(self.k, len(retrieval_results))
+        image_datas = []
+        for index, hit in enumerate(retrieval_results):
+            if index == num_examples:
+                break
+            assert hit[1]
+            temp = generative_models.Image.load_from_file(hit[1])
+            image_datas.append(generative_models.Part.from_image(temp))
+        return image_datas
 
     def get_fewshot_captions(self, retrieval_results):
         num_examples = min(self.k, len(retrieval_results))
