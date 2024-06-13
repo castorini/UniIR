@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 from tqdm import tqdm
 
 import jsonlines
@@ -56,6 +57,15 @@ def get_ground_truth(candidate_path, retrieval_jsonl_path, res):
     return gts
 
 
+def remove_caption_prefix(input_string):
+    input_string = input_string.strip()
+    pattern = r"^Caption \[\d+\]: "
+    match = re.match(pattern, input_string)
+    if match:
+        return input_string[match.end() :]
+    return input_string
+
+
 def get_results(result_dir):
     res_files = file_in_dir(result_dir, ".json")
     print(f"Count of json file: {len(res_files)}")
@@ -65,10 +75,9 @@ def get_results(result_dir):
         with open(file, "r") as file:
             data = json.load(file)
         for ind in data:
-            txt = ind["response"]
-            if "Caption [" in txt:
-                txt = txt[13:].strip()
-            res[os.path.basename(ind["image"])] = [txt]
+            res[os.path.basename(ind["image"])] = [
+                remove_caption_prefix(ind["response"])
+            ]
     return res
 
 
@@ -80,20 +89,19 @@ def calculate_metrics(output_path, res, gts):
     _gts = tokenizer.tokenize(gts)
     _res = tokenizer.tokenize(res)
 
-    scorers = [
-        Bleu(),
-        Cider(),
-        Rouge(),
-    ]
-    scorers_names = [
-        "Bleu",
-        "Cider",
-        "Rouge",
-    ]
+    scorers = {
+        "Bleu": Bleu(),
+        "Cider": Cider(),
+        "Rouge": Rouge(),
+        "Spice": Spice(),
+    }
     result = {}
-    for sc, scn in zip(scorers, scorers_names):
+    for scn in scorers:
+        sc = scorers[scn]
         score, _ = sc.compute_score(_gts, _res)
+        print("-" * 79)
         print(f"{scn}: {score}")
+        print("-" * 79)
         result[scn] = score
 
     with open(output_path, "w") as outfile:
