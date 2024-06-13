@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 from tqdm import tqdm
 
 import jsonlines
@@ -34,18 +35,18 @@ def convert_to_tokenizer_input_format(dictionary):
         new_dictionary[id] = captions_list
     return new_dictionary
 
-
 def get_ground_truth(candidate_path, retrieval_jsonl_path, res):
     clu = cr.CandidateLookUp(candidate_path)
     gts = {}
     with jsonlines.open(retrieval_jsonl_path) as reader:
-        for obj in tqdm(reader, desc="Reading docs"):
-            img = os.path.basename(obj["query"]["query_img_path"])
+        for obj in tqdm(reader, desc='Reading docs'):
+            img =  os.path.basename(obj["query"]["query_img_path"])
             if img in res:
                 pos_cand = obj["query"]["pos_cand_list"]
                 candidates = []
                 for cand in pos_cand:
-                    candidates.append(clu.retrieve_candidate_txt_from_did(cand))
+                    candidates.append(
+                        clu.retrieve_candidate_txt_from_did(cand))
                 gts[img] = candidates
             else:
                 assert False, "retrieved queries and llm queies must match"
@@ -55,6 +56,13 @@ def get_ground_truth(candidate_path, retrieval_jsonl_path, res):
     print(f"ground truth count: {len(gts)}")
     return gts
 
+def remove_caption_prefix(input_string):
+    input_string = input_string.strip()
+    pattern = r"^Caption \[\d+\]: "
+    match = re.match(pattern, input_string)
+    if match:
+        return input_string[match.end():]
+    return input_string
 
 def get_results(result_dir):
     res_files = file_in_dir(result_dir, ".json")
@@ -62,15 +70,11 @@ def get_results(result_dir):
 
     res = {}
     for file in res_files:
-        with open(file, "r") as file:
+        with open(file, 'r') as file:
             data = json.load(file)
         for ind in data:
-            txt = ind["response"]
-            if "Caption [" in txt:
-                txt = txt[13:].strip()
-            res[os.path.basename(ind["image"])] = [txt]
+            res[os.path.basename(ind["image"])] = [remove_caption_prefix(ind["response"])]
     return res
-
 
 def calculate_metrics(output_path, res, gts):
     # Tokenize before eval
@@ -80,20 +84,19 @@ def calculate_metrics(output_path, res, gts):
     _gts = tokenizer.tokenize(gts)
     _res = tokenizer.tokenize(res)
 
-    scorers = [
-        Bleu(),
-        Cider(),
-        Rouge(),
-    ]
-    scorers_names = [
-        "Bleu",
-        "Cider",
-        "Rouge",
-    ]
+    scorers = {
+        "Bleu": Bleu(),
+        "Cider": Cider(),
+        "Rouge": Rouge(),
+        "Spice": Spice(), 
+    }
     result = {}
-    for sc, scn in zip(scorers, scorers_names):
+    for scn in scorers:
+        sc = scorers[scn]
         score, _ = sc.compute_score(_gts, _res)
+        print("-"*79)
         print(f"{scn}: {score}")
+        print("-"*79)
         result[scn] = score
 
     with open(output_path, "w") as outfile:
@@ -103,31 +106,22 @@ def calculate_metrics(output_path, res, gts):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--candidate_path",
-        default=False,
-        required=True,
-        help="Path to jsonl file containing the candidates",
-    )
-    parser.add_argument("--result_dir", required=True, help="Result directory")
-    parser.add_argument(
-        "--retrieval_jsonl_path",
-        required=True,
-        help="Path to the retrieved jsonl queries that also contain positive candidates list for ground truth",
-    )
-    parser.add_argument(
-        "--calculate_retriever_metrics",
-        default=False,
-        action="store_true",
-        help="When true, the metrics for the retrieved results are also calcualted.",
-    )
+    parser.add_argument('--candidate_path',
+                        default=False,
+                        required=True,
+                        help="Path to jsonl file containing the candidates")
+    parser.add_argument('--result_dir', required=True, help="Result directory")
+    parser.add_argument('--retrieval_jsonl_path', required=True, 
+                        help="Path to the retrieved jsonl queries that also contain positive candidates list for ground truth")
+    parser.add_argument('--calculate_retriever_metrics', default=False, action="store_true", 
+                        help="When true, the metrics for the retrieved results are also calcualted.")
     args = parser.parse_args()
 
     res = get_results(args.result_dir)
     gts = get_ground_truth(args.candidate_path, args.retrieval_jsonl_path, res)
 
     output_dir = os.path.join(args.result_dir, "output")
-    os.makedirs(output_dir, exist_ok=True)
+    # os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"metrics.json")
     calculate_metrics(output_path, res, gts)
 
@@ -135,8 +129,8 @@ def main():
     if args.calculate_retriever_metrics:
         res = {}
         with jsonlines.open(args.retrieval_jsonl_path) as reader:
-            for obj in tqdm(reader, desc="Reading docs"):
-                img = os.path.basename(obj["query"]["query_img_path"])
+            for obj in tqdm(reader, desc='Reading docs'):
+                img =  os.path.basename(obj["query"]["query_img_path"])
                 # TODO:the evaluator expects one predicted caption only,
                 # for now it takes the first retrieved caption
                 # consider evalaution of each retrieved index indivudually and averaging them out.
@@ -163,5 +157,5 @@ def main():
         calculate_metrics(output_path, res, gts)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
