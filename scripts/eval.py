@@ -65,7 +65,10 @@ def get_results(result_dir):
         with open(file, "r") as file:
             data = json.load(file)
         for ind in data:
-            res[os.path.basename(ind["image"])] = [ind["response"]]
+            txt = ind["response"]
+            if "Caption [" in txt:
+                txt = txt[13:].strip()
+            res[os.path.basename(ind["image"])] = [txt]
     return res
 
 
@@ -138,14 +141,25 @@ def main():
                 # for now it takes the first retrieved caption
                 # consider evalaution of each retrieved index indivudually and averaging them out.
                 if img in gts:
-                    txt = obj["candidates"][0]["txt"]
-                    if not txt:
-                        # None captions are not acceptable, replace them with blank
-                        candidates = [""]
+                    caption = obj["candidates"][0]["txt"]
+                    if caption:
+                        candidates = [caption]
+                    elif obj["complement_candidates"][0]["txt"]:
+                        candidates = [obj["complement_candidates"][0]["txt"]]
                     else:
-                        candidates = [txt]
+                        # None captions are not acceptable, replace them with blank
+                        print(
+                            f'Added empty retriever canption for {obj["query"]["qid"]}'
+                        )
+                        candidates = [""]
+
                     res[img] = candidates
-        output_path = os.path.join(output_dir, f"retriever_metrics_k1.json")
+        retriever_output_file = (
+            "clip_retriever_metrics_k1.json"
+            if "CLIP" in args.retrieval_jsonl_path
+            else "blip_retriever_metrics_k1.json"
+        )
+        output_path = os.path.join(output_dir, retriever_output_file)
         calculate_metrics(output_path, res, gts)
 
 
