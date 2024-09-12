@@ -11,6 +11,7 @@ from datetime import datetime
 import numpy as np
 import csv
 import gc
+import json
 
 import faiss
 import pickle
@@ -302,7 +303,7 @@ def run_retrieval(config):
                 run_id = f"mbeir_{dataset_name}_union_pool_{split}_k{k}"
             else:
                 run_id = f"mbeir_{dataset_name}_single_pool_{split}_k{k}"
-            run_file_name = f"{run_id}_run.txt"
+            run_file_name = f"{run_id}_run_{datetime.now()}.txt"
             run_file_path = os.path.join(exp_run_file_dir, run_file_name)
             with open(run_file_path, 'w') as run_file:
                 for idx, (distances, indices) in enumerate(zip(retrieved_cand_dist, retrieved_indices)):
@@ -421,6 +422,119 @@ def run_retrieval(config):
         print(f"Retriever: Results saved to {tsv_file_path}")
 
 
+def run_raw_retrieval(config):
+    """This script runs retrieval on the faiss index"""
+    uniir_dir = config.uniir_dir
+    mbeir_data_dir = config.mbeir_data_dir
+    retrieval_config = config.retrieval_config
+    embed_dir_name = retrieval_config.embed_dir_name
+    index_dir_name = retrieval_config.index_dir_name
+    query_dir_name = retrieval_config.query_dir_name
+    candidate_dir_name = retrieval_config.candidate_dir_name
+    expt_dir_name = config.experiment.path_suffix
+
+    # Create results directory if it doesn't exist
+    results_dir_name = retrieval_config.results_dir_name
+    exp_results_dir = os.path.join(uniir_dir, results_dir_name, expt_dir_name)
+    os.makedirs(exp_results_dir, exist_ok=True)
+    exp_run_file_dir = os.path.join(exp_results_dir, "run_files")
+    os.makedirs(exp_run_file_dir, exist_ok=True)
+
+    splits = []
+    # Load the dataset splits to embed
+    dataset_types = ["train", "val", "test"]
+    for split_name in dataset_types:
+        retrieval_dataset_config = getattr(retrieval_config, f"{split_name}_datasets_config", None)
+        if retrieval_dataset_config and retrieval_dataset_config.enable_retrieve:
+            dataset_name_list = getattr(retrieval_dataset_config, "datasets_name", None)
+            cand_pool_name_list = getattr(retrieval_dataset_config, "correspond_cand_pools_name", None)
+            dataset_embed_dir = os.path.join(uniir_dir, embed_dir_name, expt_dir_name, split_name)
+            splits.append((split_name, dataset_embed_dir, dataset_name_list, cand_pool_name_list))
+            assert len(dataset_name_list) == len(cand_pool_name_list), "Mismatch between datasets and candidate pools."
+
+    # Pretty Print dataset to index
+    print("-" * 30)
+    for split_name, dataset_embed_dir, dataset_name_list, cand_pool_name_list in splits:
+        print(f"Split: {split_name}, Retrieval Datasets: {dataset_name_list}, Candidate Pools: {cand_pool_name_list})")
+        print("-" * 30)
+
+    cand_index_dir = os.path.join(uniir_dir, index_dir_name, expt_dir_name, "cand_pool")
+    for split, dataset_embed_dir, dataset_name_list, cand_pool_name_list in splits:
+        for dataset_name, cand_pool_name in zip(dataset_name_list, cand_pool_name_list):
+            print("\n" + "-" * 30)
+            print(f"Retriever: Retrieving for query:{dataset_name} | split:{split} | from cand_pool:{cand_pool_name}")
+
+            dataset_name = dataset_name.lower()
+            cand_pool_name = cand_pool_name.lower()
+
+            # Load query Hashed IDs
+            embed_query_id_path = os.path.join(dataset_embed_dir, f"mbeir_{dataset_name}_{split}_ids.npy")
+            hashed_query_ids = np.load(embed_query_id_path)
+
+            # Load query embeddings
+            embed_query_path = os.path.join(dataset_embed_dir, f"mbeir_{dataset_name}_{split}_embed.npy")
+
+            # Load the candidate pool index
+            cand_index_path = os.path.join(cand_index_dir, f"mbeir_{cand_pool_name}_cand_pool.index")
+
+            # Search the index
+            # TODO: make k configurable
+            k = 10
+            print(f"Retriever: Searching with k={k}")
+            retrieved_cand_dist, retrieved_indices = search_index(
+                embed_query_path, cand_index_path, batch_size=hashed_query_ids.shape[0], num_cand_to_retrieve=k
+            )  # Shape: (number_of_queries, k)
+
+            # Load raw queries
+            queries_path = os.path.join(mbeir_data_dir, query_dir_name, f"{split}/mbeir_{dataset_name}_{split}.jsonl")
+            qid_to_queries = {}
+            with open(queries_path, 'r') as f:
+                for l in f:
+                    q = json.loads(l.strip())
+                    assert q["qid"] not in qid_to_queries, "qids must be unique"
+                    qid_to_queries[q["qid"]] = q
+
+            # Load raw candidates
+            candidate_file_name = f"mbeir_{cand_pool_name}_{split}_cand_pool.jsonl"
+            candidates_path = os.path.join(mbeir_data_dir, candidate_dir_name, candidate_file_name)
+            did_to_candidates = {}
+            with open(candidates_path, 'r') as f:
+                for l in f:
+                    c = json.loads(l.strip())
+                    assert c["did"] not in did_to_candidates, "dids must be unique"
+                    did_to_candidates[c["did"]] = c
+
+            # Open a file to write the run results
+            if cand_pool_name == "union":
+                run_id = f"mbeir_{dataset_name}_union_pool_{split}_k{k}"
+            else:
+                run_id = f"mbeir_{dataset_name}_single_pool_{split}_k{k}"
+            dt = datetime.now()
+            run_file_name = f"{run_id}_run_{dt}.txt"
+            run_file_path = os.path.join(exp_run_file_dir, run_file_name)
+            retrieved_cands_file_name = f"{run_id}_run_{dt}.jsonl"
+            retrieved_cands_file_path = os.path.join(exp_run_file_dir, retrieved_cands_file_name)
+            with open(run_file_path, 'w') as run_file:
+                with open(retrieved_cands_file_path, 'w') as cand_file:
+                    for idx, (distances, indices) in enumerate(zip(retrieved_cand_dist, retrieved_indices)):
+                        cands = []
+                        qid = unhash_qid(hashed_query_ids[idx])
+                        query = qid_to_queries[qid]
+                        task_id = qid_to_queries[qid]["task_id"]
+                        for rank, (hashed_doc_id, score) in enumerate(zip(indices, distances), start=1):
+                            # Format: query-id Q0 document-id rank score run-id task_id
+                            # We can remove task_id if we don't need it later using a helper
+                            # Note: since we are using the cosine similarity, we don't need to invert the scores.
+                            doc_id = unhash_did(hashed_doc_id)
+                            cands.append(did_to_candidates[doc_id])
+                            run_file_line = f"{qid} Q0 {doc_id} {rank} {score} {run_id} {task_id}\n"
+                            run_file.write(run_file_line)
+                        json.dump({"query": query, "candidates": cands}, cand_file)
+                        cand_file.write('\n')
+            print(f"Retriever: Run file saved to {run_file_path}")
+            print(f"Retriever: Retrieved candidates saved to {retrieved_cands_file_path}")
+
+
 def run_hard_negative_mining(config):
     uniir_dir = config.uniir_dir
     mbeir_data_dir = config.mbeir_data_dir
@@ -526,6 +640,7 @@ def parse_arguments():
     parser.add_argument("--enable_create_index", action="store_true", help="Enable create index")
     parser.add_argument("--enable_hard_negative_mining", action="store_true", help="Enable hard negative mining")
     parser.add_argument("--enable_retrieval", action="store_true", help="Enable retrieval")
+    parser.add_argument("--enable_raw_retrieval", action="store_true", help="Enable raw retrieval which skips metrics calculation, and stores retrieved candidates.")
     return parser.parse_args()
 
 
@@ -545,6 +660,9 @@ def main():
 
     if args.enable_retrieval:
         run_retrieval(config)
+
+    if args.enable_raw_retrieval:
+        run_raw_retrieval(config)
 
 
 if __name__ == "__main__":
