@@ -47,16 +47,35 @@ def infer_gemini(
 
     outputs = []
     for idx, image_path in enumerate(images):
-        model = GenerativeModel("")
+        model = GenerativeModel("gemini-pro-vision")
         temp = generative_models.Image.load_from_file(image_path)
         image_data = generative_models.Part.from_image(temp)
 
         qid, retrieval_results = retrieval_dict.get(image_path)
-        message = p_class.prepare_message(retrieval_results)
-        content = [message, image_data]
+
+        fewshot_images = p_class.get_fewshot_image_data(retrieval_results)
+        fewshot_captions = p_class.get_fewshot_captions(retrieval_results)
+        assert len(fewshot_images) == len(fewshot_captions)
+
+        message = p_class.prepare_gemini_message(len(fewshot_images))
+        if fewshot_images:
+            json_data = [message]
+            content = [message]
+            for fewshot_image, fewshot_caption, result in zip(
+                fewshot_images, fewshot_captions, retrieval_results
+            ):
+                json_data.append(result[1])
+                json_data.append(fewshot_caption)
+                content.append(fewshot_image)
+                content.append(fewshot_caption)
+            json_data.append(image_path)
+            content.append(image_data)
+        else:
+            json_data = [message, image_path]
+            content = [message, image_data]
         if idx < 10:
             with open(f"{samples_dir}/prompt_{idx}.txt", "w") as f:
-                json.dump(content, f)
+                json.dump(json_data, f)
                 f.write("\n")
         try:
             response = model.generate_content(content)
